@@ -1,4 +1,5 @@
 #include "raylib.h"
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -272,58 +273,178 @@ int main() {
                 focusedField = -1; // No field is focused now
             }
         }
-        else if (screen == GAME) {
-            CloseWindow(); // Close login window
+// --- Begin GAME branch ---
+else if (screen == GAME) {
+    CloseWindow(); // Close login window
 
-            // Reinitialize a new window for the game
-            InitWindow(1440, 810, "Badminton Game");
-            SetTargetFPS(60);
+    // Reinitialize a new window for the game
+    InitWindow(1440, 810, "Badminton Game");
+    SetTargetFPS(60);
 
-            Image icon = LoadImage("assets/icon3.jpg"); 
-            ImageFormat(&icon, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
-            SetWindowIcon(icon);
-            UnloadImage(icon);
+    // Set window icon
+    Image icon = LoadImage("assets/icon3.jpg"); 
+    ImageFormat(&icon, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
+    SetWindowIcon(icon);
+    UnloadImage(icon);
 
-            // Select the correct background based on venueIndex
-            Texture2D bgGame;
+    // Select the correct background based on venueIndex
+    Texture2D bgGame;
+    if (venueIndex == 0) {
+        bgGame = LoadTexture("assets/venue1.png");
+    } else if (venueIndex == 1) {
+        bgGame = LoadTexture("assets/venue2.png");
+    } else if (venueIndex == 2) {
+        bgGame = LoadTexture("assets/venue3.png");
+    } else {
+        bgGame = LoadTexture("assets/venue1.png");  // Default fallback
+    }
 
-            if (venueIndex == 0) {
-                bgGame = LoadTexture("assets/venue1.png");
-            } else if (venueIndex == 1) {
-                bgGame = LoadTexture("assets/venue2.png");
-            } else if (venueIndex == 2) {
-                bgGame = LoadTexture("assets/venue3.png");
-            } else {
-                bgGame = LoadTexture("assets/venue1.png");  // Default fallback
+    // Load left player textures (two poses)
+    Texture2D LplayerA = LoadTexture("assets/LplayerA (1).png"); // Racket above head
+    Texture2D LplayerU = LoadTexture("assets/LplayerU (2).png"); // Racket under body
+
+    // Load right player texture (for response – curve shot)
+    Texture2D RplayerU = LoadTexture("assets/RplayerU.png");
+
+    // Load shuttle texture for left-to-right shot (use shuttleR)
+    Texture2D shuttleR = LoadTexture("assets/shuttleR.png");
+
+    // Fixed positions for players (set as before)
+    Vector2 leftPlayerPos = {210, 310};    // Left player's fixed position
+    Vector2 rightPlayerPos = {170, 360};    // Right player's fixed position
+
+    // Initialize variables for left player's shot
+    typedef enum { SHOT_NONE, SHOT_STRAIGHT, SHOT_SIN, SHOT_CURVE } ShotType;
+    ShotType leftShotType = SHOT_NONE;
+    bool shotFired = false;
+    float shotTime = 0.0f;
+    Vector2 ballPos = {0, 0};     // Current shuttle position
+    Vector2 ballStart = {0, 0};   // Starting position for the shot
+
+    // We'll always use shuttleR texture since shots go left-to-right.
+    bool useShuttleR = true;
+
+    // On-screen instructions
+    const char* instructions = "For left shots: Z = Straight, X = Sin, C = Curve. (Straight & Sin use ABOVE image; Curve uses UNDER image)";
+
+    // Define an enum for left player pose states
+    typedef enum { POSE_ABOVE, POSE_UNDER } PlayerPose;
+    PlayerPose leftPose = POSE_ABOVE;
+    // For right player, we always use the curve response image.
+    PlayerPose rightPose = POSE_ABOVE;
+
+    // Main game loop
+    while (!WindowShouldClose()) {
+        float dt = GetFrameTime();
+
+        // --- Input Handling for Left Player Movement ---
+        if (IsKeyDown(KEY_LEFT)) leftPlayerPos.x -= 5;  // Move left
+        if (IsKeyDown(KEY_RIGHT)) leftPlayerPos.x += 5;   // Move right
+
+        // --- Input Handling for Shot Selection (only if a shot is not already fired) ---
+        if (!shotFired) {
+            // Press Z for straight, X for sin, C for curve shot.
+            if (IsKeyPressed(KEY_Z)) {
+                leftShotType = SHOT_STRAIGHT;
+                shotFired = true;
+            } else if (IsKeyPressed(KEY_X)) {
+                leftShotType = SHOT_SIN;
+                shotFired = true;
+            } else if (IsKeyPressed(KEY_C)) {
+                leftShotType = SHOT_CURVE;
+                shotFired = true;
             }
-
-            while (!WindowShouldClose()) {
-                BeginDrawing();
-                ClearBackground(RAYWHITE);
-
-                // Scale the background to fit the entire window
-                if (bgGame.id != 0) {
-                    // Get window size
-                    Vector2 screenSize = { (float)GetScreenWidth(), (float)GetScreenHeight() };
-                    
-                    // Calculate scale factors to fit the screen
-                    float scaleX = screenSize.x / bgGame.width;
-                    float scaleY = screenSize.y / bgGame.height;
-                    
-                    // Draw the texture scaled to fit the screen
-                    DrawTextureEx(bgGame, (Vector2){0, 0}, 0.0f, scaleX, WHITE);
-                } else {
-                    DrawText("Error: Background not loaded!", 100, 100, 20, RED);
-                }
-
-                EndDrawing();
+            // Set the ball starting position relative to the left player's fixed position.
+            if (shotFired) {
+                shotTime = 0.0f;
+                ballStart.x = leftPlayerPos.x + 100;  // Offset to appear in front of the player.
+                ballStart.y = leftPlayerPos.y + 50;
+                ballPos = ballStart;
             }
-
-            // Free texture when exiting the game loop
-            UnloadTexture(bgGame);
-            CloseWindow(); // Close the game window
-            return 0; // Exit program
         }
+
+        // --- Update Ball Movement if Shot Fired ---
+        if (shotFired) {
+            shotTime += dt;
+            float ballSpeed = 600.0f;  // Horizontal speed
+            ballPos.x = ballStart.x + ballSpeed * shotTime;
+
+            // Update vertical displacement based on shot type.
+            if (leftShotType == SHOT_STRAIGHT) {
+                ballPos.y = ballStart.y;
+            } else if (leftShotType == SHOT_SIN) {
+                ballPos.y = ballStart.y + sin(shotTime * 4.0f) * 50;
+            } else if (leftShotType == SHOT_CURVE) {
+                float dx = ballPos.x - ballStart.x;
+                ballPos.y = ballStart.y + 0.001f * dx * dx;
+            }
+        }
+
+        // --- Right Player AI Movement ---
+        // Right player moves automatically to track the ball's x-position.
+        float aiSpeed = 3.0f;
+        if (shotFired) { // Only move if a shot is in progress.
+            if (rightPlayerPos.x + 50 < ballPos.x) rightPlayerPos.x += aiSpeed;
+            if (rightPlayerPos.x + 50 > ballPos.x) rightPlayerPos.x -= aiSpeed;
+        }
+
+        // --- Determine Left Player Pose ---
+        // Use the ABOVE image for straight and sin shots; use the UNDER image for curve shots.
+        Texture2D leftPlayerTexture;
+        if (shotFired) {
+            if (leftShotType == SHOT_CURVE)
+                leftPlayerTexture = LplayerU;
+            else
+                leftPlayerTexture = LplayerA;
+        } else {
+            leftPlayerTexture = LplayerA;
+        }
+
+        // For the right player, always use the curve (under) image as response.
+        Texture2D rightPlayerTexture = RplayerU;
+
+        BeginDrawing();
+        ClearBackground(RAYWHITE);
+
+        // --- Draw Background ---
+        if (bgGame.id != 0) {
+            Vector2 screenSize = { (float)GetScreenWidth(), (float)GetScreenHeight() };
+            float scaleX = screenSize.x / bgGame.width;
+            DrawTextureEx(bgGame, (Vector2){0, 0}, 0.0f, scaleX, WHITE);
+        } else {
+            DrawText("Error: Background not loaded!", 100, 100, 20, RED);
+        }
+
+        // --- (Optional) Debug: Draw Mouse Coordinates ---
+        Vector2 mousePos = GetMousePosition();
+        DrawText(TextFormat("Mouse: (%.0f, %.0f)", mousePos.x, mousePos.y), 20, 20, 20, RED);
+
+        // --- Draw Left Player ---
+        DrawTexture(leftPlayerTexture, (int)leftPlayerPos.x, (int)leftPlayerPos.y, WHITE);
+
+        // --- Draw Right Player ---
+        DrawTexture(rightPlayerTexture, (int)rightPlayerPos.x, (int)rightPlayerPos.y, WHITE);
+
+        // --- Draw Shuttle (Ball) ---
+        if (shotFired) {
+            DrawTexture(shuttleR, (int)ballPos.x, (int)ballPos.y, WHITE);
+        }
+
+        DrawText(instructions, 10, 750, 20, DARKBLUE);
+
+        EndDrawing();
+    }
+
+    // --- Cleanup Resources ---
+    UnloadTexture(bgGame);
+    UnloadTexture(LplayerA);
+    UnloadTexture(LplayerU);
+    UnloadTexture(RplayerU);
+    UnloadTexture(shuttleR);
+    CloseWindow();
+    return 0;
+}
+
         EndDrawing();
     }
 
