@@ -273,34 +273,57 @@ int main() {
             }
         }
         else if (screen == GAME) {
-            // Close the current login window
-            CloseWindow();
+            CloseWindow(); // Close login window
 
-            // Create a new, larger window for the game
-            InitWindow(1024, 768, "Badminton Game"); // Adjust size as needed
+            // Reinitialize a new window for the game
+            InitWindow(1440, 810, "Badminton Game");
             SetTargetFPS(60);
 
-            // Load the game background
-            Texture2D bgGame = LoadTexture("assets/game_bg.jpg"); // Change to your actual game board background
+            Image icon = LoadImage("assets/icon3.jpg"); 
+            ImageFormat(&icon, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
+            SetWindowIcon(icon);
+            UnloadImage(icon);
+
+            // Select the correct background based on venueIndex
+            Texture2D bgGame;
+
+            if (venueIndex == 0) {
+                bgGame = LoadTexture("assets/venue1.png");
+            } else if (venueIndex == 1) {
+                bgGame = LoadTexture("assets/venue2.png");
+            } else if (venueIndex == 2) {
+                bgGame = LoadTexture("assets/venue3.png");
+            } else {
+                bgGame = LoadTexture("assets/venue1.png");  // Default fallback
+            }
 
             while (!WindowShouldClose()) {
                 BeginDrawing();
                 ClearBackground(RAYWHITE);
 
-                // Draw new game background
-                DrawTextureEx(bgGame, (Vector2){0, 0}, 0.0f, 1.0f, WHITE);
-
-                DrawTextEx(gameFont, "Welcome to the Game!", (Vector2){350, 50}, 30, 2, BLACK);
+                // Scale the background to fit the entire window
+                if (bgGame.id != 0) {
+                    // Get window size
+                    Vector2 screenSize = { (float)GetScreenWidth(), (float)GetScreenHeight() };
+                    
+                    // Calculate scale factors to fit the screen
+                    float scaleX = screenSize.x / bgGame.width;
+                    float scaleY = screenSize.y / bgGame.height;
+                    
+                    // Draw the texture scaled to fit the screen
+                    DrawTextureEx(bgGame, (Vector2){0, 0}, 0.0f, scaleX, WHITE);
+                } else {
+                    DrawText("Error: Background not loaded!", 100, 100, 20, RED);
+                }
 
                 EndDrawing();
             }
 
-            // Cleanup
+            // Free texture when exiting the game loop
             UnloadTexture(bgGame);
-            CloseWindow();
+            CloseWindow(); // Close the game window
+            return 0; // Exit program
         }
-
-
         EndDrawing();
     }
 
