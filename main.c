@@ -2,6 +2,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 #define MAX_NAME_LEN 50
 #define MAX_PASS_LEN 50
@@ -119,10 +120,6 @@ int main() {
     bool loginFailed = false;
     int focusedField = 0;
 
-    const float leftMin = 90.0f;
-    const float leftMax = 430.0f;
-    const float rightMin = 570.0f;
-    const float rightMax = 1300.0f;
 
     while (!WindowShouldClose()) {
         BeginDrawing();
@@ -334,17 +331,10 @@ int main() {
             Vector2 ballPos = {0, 0};     // Current shuttle position
             Vector2 ballStart = {0, 0};   // Starting position for the shot
 
-            // We'll always use shuttleR for the initial shot.
-            bool useShuttleR = true;
 
             // On-screen instructions
             const char* instructions = "For left shots: Z = Straight, H = Sin, C = Curve.\n(Straight & Sin use ABOVE image; Curve uses UNDER image)";
 
-            // Define an enum for left player pose states
-            typedef enum { POSE_ABOVE, POSE_UNDER } PlayerPose;
-            PlayerPose leftPose = POSE_ABOVE;
-            // For right player, always use the curve (under) image as response.
-            PlayerPose rightPose = POSE_ABOVE;
 
             // --- Difficulty multipliers based on the global difficulty level ---  
             // (Assuming 'difficulty' is a global variable of type DifficultyLevel set earlier)
@@ -365,6 +355,7 @@ int main() {
             // Lower the ball's base speed for a more visible trajectory.
             float baseBallSpeed = 300.0f; // Reduced from 600
 
+            clock_t start = clock();
             // Main game loop
             while (!WindowShouldClose()) {
                 float dt = GetFrameTime();
@@ -529,6 +520,11 @@ int main() {
 
                 EndDrawing();
             }
+            // End timing after the hot section
+            clock_t end = clock();
+            double elapsed = (double)(end - start) / CLOCKS_PER_SEC;
+            printf("Hot section time: %f seconds\n", elapsed);
+
 
             // --- Cleanup Resources ---
             UnloadTexture(bgGame);
@@ -540,7 +536,6 @@ int main() {
             CloseWindow();
             return 0;
         }
-
         EndDrawing();
     }
 

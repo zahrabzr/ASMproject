@@ -3,6 +3,8 @@
 #include <xmmintrin.h> 
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
+
 
 #define MAX_NAME_LEN 50
 #define MAX_PASS_LEN 50
@@ -353,6 +355,8 @@ int main() {
             // Lower the ball's base speed for a more visible trajectory.
             float baseBallSpeed = 300.0f; // Reduced from 600
 
+            clock_t start = clock();
+
             // Main game loop
             while (!WindowShouldClose()) {
                 float dt = GetFrameTime();
@@ -453,18 +457,27 @@ int main() {
                         __m128 drift = _mm_mul_ps(verticalSpeed, st);   // 100.0f * shotTime
                         drift = _mm_mul_ps(drift, bm);                    // * ballSpeedMultiplier
 
-                        // Compute the sine component as a scalar:
+                        // Compute the sine component using FSIN in inline assembly:
                         float frequency = 4.0f, amplitude = 50.0f;
-                        float sineComponent = sin(shotTime * frequency) * amplitude;
+                        float angle = shotTime * frequency; // angle in radians
+                        float sineComponent;
+                        __asm__ volatile (
+                            "flds %1\n\t"        // Load 'angle' into st(0)
+                            "fsin\n\t"           // Compute sin(angle), result in st(0)
+                            "fmul %2\n\t"        // Multiply by 'amplitude'
+                            "fstps %0\n\t"       // Store the result into sineComponent
+                            : "=m" (sineComponent)
+                            : "m" (angle), "m" (amplitude)
+                            : "st"
+                        );
 
-                        // Now add ballStart.y:
+                        // Now add ballStart.y to the drift and sine components.
                         __m128 bs_y = _mm_set1_ps(ballStart.y);
                         __m128 result = _mm_add_ps(bs_y, drift);          // ballStart.y + drift
-                        // Add the sine component (as a scalar) to the lower lane:
                         float temp;
                         _mm_store_ss(&temp, result);
-                        temp += sineComponent;
-                        ballPos.y = temp;  // Set ballPos.y with the computed value
+                        temp += sineComponent;  // Add the FSIN-based sine component
+                        ballPos.y = temp;       // Set ballPos.y with the computed value
                     }
 
                     // else if (leftShotType == SHOT_CURVE) {
@@ -494,6 +507,14 @@ int main() {
                             : "st"                   // Clobbered: FPU register stack
                         );
                     }
+
+                    // net:
+                    // float netX = 720.0f;
+                    // float netY = 450.0f;
+                    // float netThreshold = 10.0f;
+                    // if (fabs(ballPos.x - netX) < netThreshold && ballPos.y >= netY) {
+                    //     ballPos.y = netY - 10;
+                    // }
 
 
                     // --- Check if ball is near the right player's hand to trigger return ---
@@ -590,6 +611,11 @@ int main() {
 
                 EndDrawing();
             }
+
+            // End timing after the hot section
+            clock_t end = clock();
+            double elapsed = (double)(end - start) / CLOCKS_PER_SEC;
+            printf("Hot section time: %f seconds\n", elapsed);
 
             // --- Cleanup Resources ---
             UnloadTexture(bgGame);
