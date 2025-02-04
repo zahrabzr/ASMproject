@@ -422,23 +422,26 @@ int main() {
                         : "st"
                     );
 
-                    // // Update vertical displacement based on shot type.
-                    // if (leftShotType == SHOT_STRAIGHT) {
-                    //     // Straight shot: diagonal downward movement.
-                    //     float verticalSpeed = 100.0f; // vertical drop speed
-                    //     ballPos.y = ballStart.y + verticalSpeed * shotTime * ballSpeedMultiplier;
-                    // }
-
+                    // Update vertical displacement based on shot type.
                     if (leftShotType == SHOT_STRAIGHT) {
-                        // Using SSE intrinsics for: ballPos.y = ballStart.y + 100.0f * shotTime * ballSpeedMultiplier;
-                        __m128 verticalSpeed = _mm_set1_ps(100.0f);                   // Set constant 100.0f in all lanes
-                        __m128 st = _mm_set1_ps(shotTime);                              // Broadcast shotTime
-                        __m128 bm = _mm_set1_ps(ballSpeedMultiplier);                   // Broadcast ballSpeedMultiplier
-                        __m128 prod = _mm_mul_ps(verticalSpeed, st);                    // 100.0f * shotTime
-                        prod = _mm_mul_ps(prod, bm);                                    // * ballSpeedMultiplier
-                        __m128 bs_y = _mm_set1_ps(ballStart.y);                         // Broadcast ballStart.y
-                        __m128 result = _mm_add_ps(bs_y, prod);                         // ballStart.y + (verticalSpeed * shotTime * bm)
-                        _mm_store_ss(&ballPos.y, result);                               // Store lower float of result into ballPos.y
+                        // Using inline assembly to compute:
+                        // ballPos.y = ballStart.y + verticalSpeed * shotTime * ballSpeedMultiplier;
+                        float verticalSpeed = 100.0f; // vertical drop speed
+                        __asm__ volatile (
+                            "flds %2\n\t"            // Load verticalSpeed into st(0)
+                            "fmuls %3\n\t"           // Multiply st(0) by shotTime -> st(0) = verticalSpeed * shotTime
+                            "flds %4\n\t"            // Load ballSpeedMultiplier into st(0), push previous value to st(1)
+                            "fmulp %%st, %%st(1)\n\t" // Multiply st(1) by st(0) and pop: st(0) = verticalSpeed * shotTime * ballSpeedMultiplier
+                            "flds %1\n\t"            // Load ballStart.y into st(0), push previous value to st(1)
+                            "faddp %%st, %%st(1)\n\t" // Add st(0) (ballStart.y) to st(1) and pop: st(0) = ballStart.y + (verticalSpeed * shotTime * ballSpeedMultiplier)
+                            "fstps %0\n\t"           // Store the result from st(0) into ballPos.y
+                            : "=m" (ballPos.y)        // Output: store the result in ballPos.y
+                            : "m" (ballStart.y),      // Input operand 1: ballStart.y
+                            "m" (verticalSpeed),    // Input operand 2: verticalSpeed (100.0f)
+                            "m" (shotTime),         // Input operand 3: shotTime
+                            "m" (ballSpeedMultiplier) // Input operand 4: ballSpeedMultiplier
+                            : "st"                   // Clobbered: FPU register
+                        );
                     }
 
                     // else if (leftShotType == SHOT_SIN) {
@@ -449,36 +452,42 @@ int main() {
                     //     ballPos.y = ballStart.y + verticalSpeed * shotTime * ballSpeedMultiplier + sin(shotTime * frequency) * amplitude;
                     // } 
 
+                    // In the SHOT_SIN branch:
                     else if (leftShotType == SHOT_SIN) {
-                        // Compute the drift component with SSE:
-                        __m128 verticalSpeed = _mm_set1_ps(100.0f);
-                        __m128 st = _mm_set1_ps(shotTime);
-                        __m128 bm = _mm_set1_ps(ballSpeedMultiplier);
-                        __m128 drift = _mm_mul_ps(verticalSpeed, st);   // 100.0f * shotTime
-                        drift = _mm_mul_ps(drift, bm);                    // * ballSpeedMultiplier
+                        // Define constants
+                        float verticalSpeed = 100.0f;  // vertical drop speed
+                        float frequency = 4.0f;        // sine frequency
+                        float amplitude = 50.0f;       // sine amplitude
+
+                        // Compute the drift component using inline assembly:
+                        float driftResult;
+                        __asm__ volatile (
+                            "flds %1\n\t"         // Load verticalSpeed into st(0)
+                            "fmuls %2\n\t"        // Multiply st(0) by shotTime, now st(0) = verticalSpeed * shotTime
+                            "fmuls %3\n\t"        // Multiply st(0) by ballSpeedMultiplier
+                            "fstps %0\n\t"        // Store the result into driftResult and pop the stack
+                            : "=m" (driftResult)
+                            : "m" (verticalSpeed), "m" (shotTime), "m" (ballSpeedMultiplier)
+                            : "st"
+                        );
 
                         // Compute the sine component using FSIN in inline assembly:
-                        float frequency = 4.0f, amplitude = 50.0f;
-                        float angle = shotTime * frequency; // angle in radians
-                        float sineComponent;
+                        float angle = shotTime * frequency;  // Compute the angle in radians in C
+                        float sineResult;
                         __asm__ volatile (
-                            "flds %1\n\t"        // Load 'angle' into st(0)
-                            "fsin\n\t"           // Compute sin(angle), result in st(0)
-                            "fmul %2\n\t"        // Multiply by 'amplitude'
-                            "fstps %0\n\t"       // Store the result into sineComponent
-                            : "=m" (sineComponent)
+                            "flds %1\n\t"         // Load 'angle' into st(0)
+                            "fsin\n\t"            // Compute sin(angle), result in st(0)
+                            "fmul %2\n\t"         // Multiply the result by 'amplitude'
+                            "fstps %0\n\t"        // Store the result into sineResult and pop the stack
+                            : "=m" (sineResult)
                             : "m" (angle), "m" (amplitude)
                             : "st"
                         );
 
-                        // Now add ballStart.y to the drift and sine components.
-                        __m128 bs_y = _mm_set1_ps(ballStart.y);
-                        __m128 result = _mm_add_ps(bs_y, drift);          // ballStart.y + drift
-                        float temp;
-                        _mm_store_ss(&temp, result);
-                        temp += sineComponent;  // Add the FSIN-based sine component
-                        ballPos.y = temp;       // Set ballPos.y with the computed value
+                        // Combine the components with ballStart.y:
+                        ballPos.y = ballStart.y + driftResult + sineResult;
                     }
+
 
                     // else if (leftShotType == SHOT_CURVE) {
                     //     float dx = ballPos.x - ballStart.x;
