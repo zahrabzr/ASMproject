@@ -318,7 +318,7 @@ int main() {
             Vector2 rightPlayerPos = {700, 400};     // Right player's fixed position
 
             // Define movement boundaries for players
-            const float leftMin = 210.0f;
+            const float leftMin = 100.0f;
             const float leftMax = 560.0f;
             const float rightMin = 700.0f;
             const float rightMaxBound = 990.0f;
